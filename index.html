@@ -33,6 +33,8 @@ input,textarea,select{width:100%;min-height:48px;background:#0a100d;color:#fff;b
   </div>
   <div style="margin-top:10px"><label>Texte</label><textarea id="newsBody" maxlength="3000" placeholder="Actualité, annonce, show, lancement, promotion..."></textarea></div>
   <div style="margin-top:10px"><label>Lien externe (optionnel)</label><input id="newsLink" type="url" placeholder="https://..."></div>
+  <div style="margin-top:10px"><label>Photo ou courte vidéo (optionnel)</label><input id="newsMedia" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"><div class="small">Image : maximum 5 Mo. Vidéo : maximum 20 Mo. Un seul média par publication.</div></div>
+  <div id="newsMediaPreview" class="hidden" style="margin-top:10px"></div>
   <div style="margin-top:10px"><label>Fiche artiste liée (optionnel)</label><select id="newsArtistProfile"><option value="">Aucune fiche artiste</option></select></div>
   <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input id="newsKeepProfile" type="checkbox" style="width:auto;min-height:auto" disabled> Conserver une copie permanente dans cette fiche artiste</label>
   <button id="newsPublish" class="goodbtn" style="margin-top:12px">PUBLIER POUR 7 JOURS</button>
@@ -88,7 +90,25 @@ async function refresh(){const {data:{user:u}}=await db.auth.getUser();user=u||n
 $('#memberTitle').textContent='Compte membre';$('#accountEmail').textContent=user.email||'';try{state=await api('me');$('#vipStatus').textContent=state.vip?'VIP ACTIF':'VIP INACTIF';$('#subState').textContent=String(state.subscription?.status||'inactive').toUpperCase();$('#requestState').textContent=String(state.vipRequest?.status||'AUCUNE').replaceAll('_',' ').toUpperCase();$('#periodEnd').textContent=state.subscription?.current_period_end?new Date(state.subscription.current_period_end).toLocaleDateString('fr-CA'):'—';$('#subscribe').textContent=state.vip?'VIP ACTIF':state.vipRequest?'METTRE À JOUR MA DEMANDE':'DEMANDER LE VIP — 5,99 $ / MOIS';$('#subscribe').disabled=!!state.vip;$('#newsComposer').classList.toggle('hidden',!state.vip);await loadFullContent();await loadNewsProfiles();renderCatalog()}catch(e){msg('#payMsg',e.message,true)}}
 function renderCatalog(){const q=$('#search').value.trim().toLowerCase();const list=catalog.filter(x=>(x.title+' '+x.category+' '+x.content_type).toLowerCase().includes(q));$('#contentCount').textContent=list.length+' capsule'+(list.length>1?'s':'');$('#lessons').innerHTML=list.map(x=>'<article class="lesson '+(state?.vip?'':'lock')+'"><div class="meta">'+x.category+' · '+x.content_type+' · '+(x.duration_label||'')+'</div><h3>'+x.title+'</h3><p>'+x.description+'</p><button class="'+(state?.vip?'goodbtn':'ghost')+'" onclick="openLesson(&quot;'+x.id+'&quot;)">'+(progress.has(x.id)?'REVOIR · TERMINÉ':state?.vip?'OUVRIR':'VIP REQUIS')+'</button></article>').join('')||'<div class="small">Aucun contenu.</div>'}
 window.openLesson=async id=>{selected=catalog.find(x=>x.id===id);if(!selected)return;$('#modalTitle').textContent=selected.title;$('#modalMeta').textContent=selected.category+' · '+selected.content_type+' · '+(selected.duration_label||'');$('#modalDesc').textContent=selected.description;const full=fullContent.find(x=>x.id===id);if(state?.vip&&full){if(full.storage_path){$('#player').innerHTML='<div><strong>Chargement de la vidéo VIP…</strong></div>';try{const media=await api('vip_media_url',{contentId:id});$('#player').innerHTML='<video src="'+media.signedUrl+'" style="width:100%;height:100%;max-height:65vh;border-radius:12px;background:#000" controls playsinline preload="metadata"></video>'}catch(e){$('#player').innerHTML='<div><strong>Vidéo temporairement indisponible</strong><div class="small">'+e.message+'</div></div>'}}else if(full.content_url){$('#player').innerHTML='<iframe src="'+youtubeLoopEmbed(full.content_url)+'" style="width:100%;height:100%;min-height:360px;border:0;border-radius:12px;background:#000" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'}else{$('#player').innerHTML='<div><div style="font-size:44px">▶</div><strong>Capsule prête à recevoir son média</strong><div class="small">Le contenu est déverrouillé; la vidéo sera ajoutée par l’administration.</div></div>'}$('#doneBtn').classList.remove('hidden');$('#doneBtn').textContent=progress.has(id)?'RETIRER DES TERMINÉS':'MARQUER COMME TERMINÉ'}else{$('#player').innerHTML='<div><div style="font-size:44px">🔒</div><strong>Abonnement VIP requis</strong><div class="small">5,99 $ CAD / mois.</div></div>';$('#doneBtn').classList.add('hidden')}$('#modal').classList.add('open')}
-$('#close').onclick=()=>$('#modal').classList.remove('open');$('#modal').onclick=e=>{if(e.target.id==='modal')$('#modal').classList.remove('open')};$('#search').oninput=renderCatalog;$('#newsArtistProfile').onchange=()=>{const has=!!$('#newsArtistProfile').value;$('#newsKeepProfile').disabled=!has;if(!has)$('#newsKeepProfile').checked=false};
+$('#close').onclick=()=>$('#modal').classList.remove('open');$('#modal').onclick=e=>{if(e.target.id==='modal')$('#modal').classList.remove('open')};$('#search').oninput=renderCatalog;$('#newsArtistProfile').onchange=()=>{const has=!!$('#newsArtistProfile').value;$('#newsKeepProfile').disabled=!has;if(!has)$('#newsKeepProfile').checked=false};$('#newsMedia').onchange=()=>{
+  const file=$('#newsMedia').files?.[0];
+  const box=$('#newsMediaPreview');
+  box.innerHTML='';box.classList.add('hidden');
+  if(!file)return;
+  const isImage=file.type.startsWith('image/'),isVideo=file.type.startsWith('video/');
+  const max=isImage?5*1024*1024:20*1024*1024;
+  if((!isImage&&!isVideo)||file.size>max){
+    msg('#newsMsg',isImage?'Image trop lourde : maximum 5 Mo.':'Vidéo trop lourde ou format non accepté : maximum 20 Mo.',true);
+    $('#newsMedia').value='';
+    return;
+  }
+  const url=URL.createObjectURL(file);
+  box.innerHTML=isImage
+    ? '<img src="'+url+'" alt="" style="width:100%;max-height:420px;object-fit:cover;border-radius:14px">'
+    : '<video src="'+url+'" controls playsinline style="width:100%;max-height:420px;border-radius:14px;background:#000"></video>';
+  box.classList.remove('hidden');
+};
+
 $('#newsPublish').onclick=async()=>{
   hide('#newsMsg');
   if(!state?.vip)return msg('#newsMsg','Forfait VIP actif requis.',true);
@@ -99,15 +119,24 @@ $('#newsPublish').onclick=async()=>{
   if(!title||!body)return msg('#newsMsg','Le titre et le texte sont requis.',true);
   $('#newsPublish').disabled=true;
   try{
+    const file=$('#newsMedia').files?.[0]||null;
+    let mediaPath=null,mediaType=null,mediaMime=null,mediaSizeBytes=null;
+    if(file){
+      const prep=await api('create_news_media_upload',{filename:file.name,fileSize:file.size,contentType:file.type});
+      const up=await db.storage.from('rap-jungle-news').uploadToSignedUrl(prep.path,prep.token,file,{contentType:file.type,upsert:false});
+      if(up.error)throw up.error;
+      mediaPath=prep.path;mediaType=prep.mediaType;mediaMime=prep.mime;mediaSizeBytes=file.size;
+    }
     await api('create_news_post',{
       authorName,
       title,
       body,
       linkUrl:$('#newsLink').value.trim(),
       artistProfileId:$('#newsArtistProfile').value||null,
-      keepProfileCopy:$('#newsKeepProfile').checked
+      keepProfileCopy:$('#newsKeepProfile').checked,
+      mediaPath,mediaType,mediaMime,mediaSizeBytes
     });
-    $('#newsTitle').value='';$('#newsBody').value='';$('#newsLink').value='';$('#newsKeepProfile').checked=false;
+    $('#newsTitle').value='';$('#newsBody').value='';$('#newsLink').value='';$('#newsMedia').value='';$('#newsMediaPreview').innerHTML='';$('#newsMediaPreview').classList.add('hidden');$('#newsKeepProfile').checked=false;
     msg('#newsMsg','Publication envoyée dans le fil d’actualité pour 7 jours.','');
   }catch(e){msg('#newsMsg',e.message,true)}
   finally{$('#newsPublish').disabled=false}
